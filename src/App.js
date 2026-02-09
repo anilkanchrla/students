@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import sidebar from "./components/sidebar";
+// import sidebar from "./components/sidebar";
 import Registration from "./components/studentdata";
 import ApplicationFee from "./components/ApplicationFee";
 import RegistrationFee from "./components/RegistrationFee";
-import Payment from "./components/Payment";
+// import Payment from "./components/Payment";
 import UniversityVisit from "./components/UniversityVisit";
 import Admission from "./components/Admission";
 import Login from "./components/Login";
