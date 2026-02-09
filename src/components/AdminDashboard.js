@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { db, auth } from "../firebase";
 import { setDoc, doc, deleteDoc } from "firebase/firestore";
-import { createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
+import { createUserWithEmailAndPassword, } from "firebase/auth";
 import { updateAgent } from "../firebaseService";
 
 const AdminDashboard = ({ users, students = [], onAddAgent, onUpdateUser, onViewAgent, onViewStudent, onDeleteAgent }) => {
