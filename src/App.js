@@ -11,6 +11,7 @@ import AdminDashboard from "./components/AdminDashboard";
 import AgentDashboard from "./components/AgentDashboard";
 import NavBar from "./components/NavBar";
 import Chat from "./components/Chat";
+import { getAllAgents, getAllStudents, saveNewStudent, updateStudent } from "./firebaseService";
 
 function App() {
   const [step, setStep] = useState(1); // 1, 2, 3, 4, 5, or 'dashboard'
@@ -29,22 +30,73 @@ function App() {
   // View As State
   const [viewMode, setViewMode] = useState(null); // null, 'agent_view', 'student_view'
   const [viewTargetId, setViewTargetId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Load state from local storage on mount
+  // Load state from localStorage FIRST (immediate restore), then sync with Firebase
   useEffect(() => {
+    // STEP 1: Load from localStorage immediately (fast restore)
     const storedUsers = localStorage.getItem("app_users");
     const storedUser = localStorage.getItem("app_currentUser");
     const storedStudents = localStorage.getItem("app_students");
 
     if (storedUsers) {
-      setUsers(JSON.parse(storedUsers));
+      try {
+        setUsers(JSON.parse(storedUsers));
+        console.log("✓ Loaded users from localStorage");
+      } catch (e) {
+        console.error("Error parsing stored users:", e);
+      }
     }
     if (storedUser) {
-      setCurrentUser(JSON.parse(storedUser));
+      try {
+        setCurrentUser(JSON.parse(storedUser));
+        console.log("✓ Loaded current user from localStorage");
+      } catch (e) {
+        console.error("Error parsing stored user:", e);
+      }
     }
     if (storedStudents) {
-      setStudents(JSON.parse(storedStudents));
+      try {
+        setStudents(JSON.parse(storedStudents));
+        console.log("✓ Loaded students from localStorage");
+      } catch (e) {
+        console.error("Error parsing stored students:", e);
+      }
     }
+
+    // STEP 2: Now sync with Firebase in background
+    const loadDataFromFirebase = async () => {
+      try {
+        console.log("⏳ Syncing with Firebase...");
+        
+        // Load agents from Firebase
+        const agentsData = await getAllAgents();
+        if (agentsData && agentsData.length > 0) {
+          console.log("✓ Loaded agents from Firebase:", agentsData.length);
+          setUsers(prevUsers => [
+            ...prevUsers.filter(u => u.role === 'admin'),
+            ...agentsData
+          ]);
+        } else {
+          console.log("ℹ No agents found in Firebase, using localStorage");
+        }
+
+        // Load students from Firebase
+        const studentsData = await getAllStudents();
+        if (studentsData && studentsData.length > 0) {
+          console.log("✓ Loaded students from Firebase:", studentsData.length);
+          setStudents(studentsData);
+        } else {
+          console.log("ℹ No students found in Firebase, using localStorage");
+        }
+      } catch (error) {
+        console.error("⚠ Error syncing with Firebase (continuing with localStorage):", error.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDataFromFirebase();
   }, []);
 
   // Save users to local storage whenever they change
@@ -61,7 +113,7 @@ function App() {
     }
   }, [currentUser]);
 
-  // Save students to local storage
+  // Save students to Firebase (primary) and localStorage (backup)
   useEffect(() => {
     localStorage.setItem("app_students", JSON.stringify(students));
   }, [students]);
@@ -102,35 +154,70 @@ function App() {
     }
   };
 
+  const handleDeleteAgent = (deletedAgent) => {
+    // Remove agent from users array
+    setUsers(users.filter(u => u.uid !== deletedAgent.uid));
+  };
+
   // Student Management Functions
-  const handleNewEnquiry = (studentData) => {
+  const handleNewEnquiry = async (studentData) => {
     const newStudent = {
       ...studentData,
-      id: Date.now(),
       agentId: currentUser.agentId, // Link to current agent
       agentName: currentUser.name,
       status: "Enquiry",
       currentStage: "Registration",
       createdAt: new Date().toISOString()
     };
-    setStudents([...students, newStudent]);
-    setCurrentStudentId(newStudent.id);
-    setStep(2); // Move to Fee payment
+    
+    try {
+      // Save to Firebase first
+      const savedStudent = await saveNewStudent(newStudent);
+      if (savedStudent) {
+        // Update local state with Firebase ID
+        setStudents([...students, savedStudent]);
+        setCurrentStudentId(savedStudent.id);
+        setStep(2); // Move to Fee payment
+      } else {
+        alert("Error saving student to database");
+      }
+    } catch (error) {
+      console.error("Error creating enquiry:", error);
+      alert("Error: " + error.message);
+    }
   };
 
-  const updateStudentProgress = (data, nextStep, stageName) => {
-    setStudents(students.map(s => {
-      if (s.id === currentStudentId) {
-        return {
-          ...s,
-          ...data,
-          status: "In Progress",
-          currentStage: stageName
-        };
+  const updateStudentProgress = async (data, nextStep, stageName) => {
+    if (!currentStudentId) return;
+    
+    const updatedData = {
+      ...data,
+      status: "In Progress",
+      currentStage: stageName
+    };
+
+    try {
+      // Update in Firebase
+      const success = await updateStudent(currentStudentId, updatedData);
+      if (success) {
+        // Update local state
+        setStudents(students.map(s => {
+          if (s.id === currentStudentId) {
+            return {
+              ...s,
+              ...updatedData
+            };
+          }
+          return s;
+        }));
+        setStep(nextStep);
+      } else {
+        alert("Error updating student progress");
       }
-      return s;
-    }));
-    setStep(nextStep);
+    } catch (error) {
+      console.error("Error updating progress:", error);
+      alert("Error: " + error.message);
+    }
   };
 
   const getCurrentStudent = () => {
@@ -178,6 +265,7 @@ function App() {
           onUpdateUser={handleUpdateUser}
           onViewAgent={handleViewAgent}
           onViewStudent={handleViewStudent}
+          onDeleteAgent={handleDeleteAgent}
         />
       );
     }
@@ -284,7 +372,12 @@ function App() {
               else setStep('dashboard');
             }}
             student={getCurrentStudent()}
-            updateStudent={(data) => {
+            updateStudent={async (data) => {
+              // Update in Firebase
+              if (currentStudentId) {
+                await updateStudent(currentStudentId, data);
+              }
+              // Update local state
               setStudents(students.map(s => {
                 if (s.id === currentStudentId) {
                   return { ...s, ...data };
@@ -302,6 +395,26 @@ function App() {
     return <Login users={users} onLogin={handleLogin} />;
   }
 
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f5f5f5' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '20px' }}>📚 University Admin System</div>
+          <div style={{ fontSize: '1.1rem', color: '#666', marginBottom: '20px' }}>Loading data from Firebase...</div>
+          <div style={{ 
+            border: '4px solid #f3f3f3', 
+            borderTop: '4px solid #4f46e5', 
+            borderRadius: '50%', 
+            width: '40px', 
+            height: '40px', 
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto'
+          }}></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <NavBar
@@ -315,6 +428,12 @@ function App() {
         {renderContent()}
       </div>
       <Chat currentUser={currentUser} />
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </>
   );
 }

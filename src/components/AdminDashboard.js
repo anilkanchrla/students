@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { db, auth } from "../firebase";
-import { setDoc, doc } from "firebase/firestore";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { setDoc, doc, deleteDoc } from "firebase/firestore";
+import { createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
+import { updateAgent } from "../firebaseService";
 
-const AdminDashboard = ({ users, students = [], onAddAgent, onUpdateUser, onViewAgent, onViewStudent }) => {
+const AdminDashboard = ({ users, students = [], onAddAgent, onUpdateUser, onViewAgent, onViewStudent, onDeleteAgent }) => {
     const [activeTab, setActiveTab] = useState('status'); // 'add', 'view', 'modify', 'status', 'contact'
 
 
@@ -94,20 +95,61 @@ const AdminDashboard = ({ users, students = [], onAddAgent, onUpdateUser, onView
         setEditMessage("");
     };
 
-    const handleUpdateAgent = () => {
+    const handleUpdateAgent = async () => {
         if (!editForm.name || !editForm.mobile) {
             setEditMessage("Name and Mobile are required");
             return;
         }
 
-        onUpdateUser({
-            ...editingAgent,
-            name: editForm.name,
-            mobile: editForm.mobile
-        });
+        try {
+            // Update in Firebase first
+            if (editingAgent.uid) {
+                await updateAgent(editingAgent.uid, {
+                    name: editForm.name,
+                    mobile: editForm.mobile
+                });
+            }
 
-        setEditMessage("Agent updated successfully!");
-        setEditingAgent(null); // Close edit mode
+            // Update in local state
+            onUpdateUser({
+                ...editingAgent,
+                name: editForm.name,
+                mobile: editForm.mobile
+            });
+
+            setEditMessage("Agent updated successfully!");
+            setEditingAgent(null); // Close edit mode
+        } catch (error) {
+            console.error("Error updating agent:", error);
+            setEditMessage("Error updating agent: " + error.message);
+        }
+    };
+
+    const handleDeleteAgent = (agent) => {
+        if (window.confirm(`Are you sure you want to delete agent ${agent.name}? This action cannot be undone.`)) {
+            const deleteFromFirebase = async () => {
+                try {
+                    // Delete from Firestore
+                    if (agent.uid) {
+                        const agentRef = doc(db, "users", agent.uid);
+                        await deleteDoc(agentRef);
+                    }
+                    
+                    setEditMessage("Agent deleted successfully!");
+                    setEditingAgent(null);
+                    
+                    // Optionally call parent's delete handler if provided
+                    if (onDeleteAgent) {
+                        onDeleteAgent(agent);
+                    }
+                } catch (error) {
+                    console.error("Error deleting agent from Firebase:", error);
+                    alert("Error: " + error.message);
+                }
+            };
+            
+            deleteFromFirebase();
+        }
     };
 
     const filteredStudents = students.filter(student => {
@@ -201,15 +243,45 @@ const AdminDashboard = ({ users, students = [], onAddAgent, onUpdateUser, onView
                                                 <td>{agent.name}</td>
                                                 <td>{agent.agentId}</td>
                                                 <td>{agent.mobile}</td>
-                                                <td>
-                                                    <button onClick={() => onViewAgent(agent.agentId)} className="btn btn-outline" style={{ padding: '5px 10px', fontSize: '0.8rem' }}>
+                                                <td style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                    <button onClick={() => onViewAgent(agent.agentId)} className="btn btn-outline btn-compact">
                                                         View Dashboard
+                                                    </button>
+                                                    <button onClick={() => startEdit(agent)} className="btn btn-primary btn-compact">
+                                                        Modify
+                                                    </button>
+                                                    <button onClick={() => handleDeleteAgent(agent)} className="btn btn-danger btn-compact" style={{ backgroundColor: '#ef4444', borderColor: '#ef4444' }}>
+                                                        Delete
                                                     </button>
                                                 </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+                        )}
+                        {editingAgent && (
+                            <div style={{ marginTop: '20px', background: '#f9f9f9', padding: '20px', borderRadius: '8px', border: '1px solid #ddd' }}>
+                                <h4 style={{ marginTop: 0 }}>Editing: {editingAgent.agentId}</h4>
+                                <div className="form-grid">
+                                    <div className="form-group">
+                                        <label>Name</label>
+                                        <input className="form-control" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Mobile</label>
+                                        <input className="form-control" value={editForm.mobile} onChange={(e) => setEditForm({ ...editForm, mobile: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Agent ID</label>
+                                        <input className="form-control" value={editingAgent.agentId} disabled style={{ background: '#eee' }} />
+                                    </div>
+                                </div>
+                                <div className="btn-row">
+                                    <button className="btn btn-outline" onClick={() => setEditingAgent(null)}>Cancel</button>
+                                    <button className="btn btn-primary" onClick={handleUpdateAgent}>Save Changes</button>
+                                </div>
+                                {editMessage && <p style={{ color: 'green', marginTop: '10px' }}>{editMessage}</p>}
                             </div>
                         )}
                     </div>
@@ -255,7 +327,7 @@ const AdminDashboard = ({ users, students = [], onAddAgent, onUpdateUser, onView
                                                 <td>{agent.agentId}</td>
                                                 <td>{agent.mobile}</td>
                                                 <td>
-                                                    <button className="btn btn-primary" style={{ padding: '5px 10px', fontSize: '0.8rem' }} onClick={() => startEdit(agent)}>
+                                                    <button className="btn btn-primary btn-compact" onClick={() => startEdit(agent)}>
                                                         Edit
                                                     </button>
                                                 </td>
@@ -337,7 +409,7 @@ const AdminDashboard = ({ users, students = [], onAddAgent, onUpdateUser, onView
                                                 <td>{student.currentStage.includes("Confirmation") || student.currentStage === "Admission Completed" ? <span className="badge badge-success">Done</span> : <span className="badge badge-gray">-</span>}</td>
                                                 <td>{student.currentStage === "Admission Completed" ? <span className="badge badge-success">Confirmed</span> : <span className="badge badge-gray">-</span>}</td>
                                                 <td>
-                                                    <button onClick={() => onViewStudent(student.id)} className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '0.75rem' }}>
+                                                    <button onClick={() => onViewStudent(student.id)} className="btn btn-primary btn-compact">
                                                         View App
                                                     </button>
                                                 </td>

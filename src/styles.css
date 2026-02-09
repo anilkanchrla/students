@@ -280,3 +280,13 @@ textarea.form-control {
     grid-template-columns: 1fr;
   }
 }
+
+/* Compact button used inside tables to avoid full-width buttons */
+.btn-compact {
+  width: auto !important;
+  padding: 6px 12px !important;
+  font-size: 0.85rem !important;
+  border-radius: 8px !important;
+  display: inline-flex !important;
+  min-width: 84px;
+}
