@@ -8,34 +8,10 @@ import {
   doc,
   setDoc,
   query,
-  where,
-  onAuthStateChanged
+  where
 } from "firebase/firestore";
 
-// Check if user is authenticated
-const isUserAuthenticated = () => {
-  return auth.currentUser !== null;
-};
 
-// Handle Firebase errors gracefully
-const handleFirebaseError = (error, operation) => {
-  console.error(`Firebase ${operation} error:`, error.code, error.message);
-  
-  if (error.code === 'permission-denied') {
-    console.error(`❌ PERMISSION DENIED: Update Firestore Security Rules at firebase.google.com`);
-    console.error(`   Rules needed: Allow read/write for development`);
-  } else if (error.code === 'unauthenticated') {
-    console.error(`❌ NOT AUTHENTICATED: User not signed in`);
-  } else if (error.code === 'unavailable') {
-    console.error(`❌ FIREBASE UNAVAILABLE: Check internet connection or Firebase status`);
-  }
-  
-  return {
-    error: true,
-    code: error.code,
-    message: error.message
-  };
-};
 
 // ============ AGENTS/USERS FIRESTORE OPERATIONS ============
 
@@ -281,7 +257,6 @@ export const deleteStudent = async (studentId) => {
  */
 export const getStudentById = async (studentId) => {
   try {
-    const studentRef = doc(db, "students", studentId);
     const snapshot = await getDocs(collection(db, "students"));
     let foundStudent = null;
     snapshot.forEach(doc => {
